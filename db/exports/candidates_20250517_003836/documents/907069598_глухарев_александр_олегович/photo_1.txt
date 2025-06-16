@@ -1,0 +1,2 @@
+Не удалось скачать AgACAgIAAxkBAAIMBGgnpecJbt0FYktthOAuEdMy6ZInAAL89TEb22FASd9S7O4gaiISAQADAgADeQADNgQ
+'Bot' object has no attribute 'download_file_by_id'
