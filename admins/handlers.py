@@ -39,8 +39,9 @@ from db.database import (
     export_candidates_zip_async,
     get_user_role,
     set_user_role,
+    has_pending_ps_request,
+    get_user_registrations,
 )
-from user.registration.utils.locale_to_excel import import_excel_to_db
 
 # --------------------------------------------------------------------------- #
 #                               ВСПОМОГАТЕЛЬНОЕ                               #
@@ -66,50 +67,42 @@ def _role_suffix(role_code: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-@dp.message(Command("admin"), IsAdmin())
+@dp.message(Command("admin"))
 async def admin_entry(message: types.Message, state: FSMContext) -> None:
     """
-    Хэндлер для «админских» ролей – показывает нужную панель.
-
-    * practice_supervisor  → панель РП
-    * admin                → панель администратора
-    * supervisor           → панель суперадмина
+    Хэндлер для открытия админ-панели в зависимости от роли пользователя.
+    Если роль не админская, выводит сообщение о недоступности команды.
     """
     await state.clear()
 
-    suffix: str = _role_suffix(get_user_role(message.from_user.id) or "")
-    if suffix == "practice_supervisor":
-        await message.answer("Панель руководителя практики",
-                             reply_markup=get_practice_supervisor_panel_kb())
-    elif suffix == "admin":
-        await message.answer("Панель админа", reply_markup=get_admin_panel_kb())
-    elif suffix == "supervisor":
-        await message.answer("Панель суперадмина",
-                             reply_markup=get_superadmin_panel_kb())
-    # если роль не админская – просто молчим, чтобы второму хэндлеру не мешать
-
-
-@dp.message(Command("admin"))
-async def admin_entry_show_ps_registration(
-    message: types.Message, state: FSMContext
-) -> None:
-    """
-    Для обычного пользователя: предлагает зарегистрироваться как РП.
-    Срабатывает **только если предыдущий хэндлер не вернул ответ**.
-    """
-    await state.clear()
-
-    suffix: str = _role_suffix(get_user_role(message.from_user.id)
-                               or "user_unauthorized")
-    if suffix not in ("practice_supervisor", "admin", "supervisor"):
-        from admins.practice_supervisor.registration.keyboards import (
-            get_ps_register_kb,
-        )
-
+    user_role = get_user_role(message.from_user.id)
+    
+    if not user_role:
         await message.answer(
-            "Чтобы получить доступ к панели руководителя практики, "
-            "зарегистрируйтесь:",
-            reply_markup=get_ps_register_kb(),
+            "❌ Данная команда недоступна, так как у вас нет роли."
+        )
+        return
+    
+    suffix = _role_suffix(user_role)
+    
+    if suffix == "practice_supervisor":
+        await message.answer(
+            "Панель руководителя практики",
+            reply_markup=get_practice_supervisor_panel_kb()
+        )
+    elif suffix == "admin":
+        await message.answer(
+            "Панель админа",
+            reply_markup=get_admin_panel_kb()
+        )
+    elif suffix == "supervisor":
+        await message.answer(
+            "Панель суперадмина",
+            reply_markup=get_superadmin_panel_kb()
+        )
+    else:
+        await message.answer(
+            f"❌ Данная команда недоступна, так как ваша роль: {user_role}"
         )
 
 

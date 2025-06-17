@@ -1222,3 +1222,61 @@ def get_modules_by_department(department: str) -> List[str]:
     )
     rows = cursor.fetchall()
     return [row["module"] for row in rows]
+
+
+def create_admin_registration_table():
+    """Создаёт таблицу для заявок на регистрацию администраторов."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_registrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            target_role TEXT NOT NULL,
+            fio TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            approved_by INTEGER,
+            approved_at TIMESTAMP,
+            comment TEXT
+        )
+    """)
+    conn.commit()
+
+    # Создаём индекс для быстрого поиска по user_id
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_admin_reg_user_id
+        ON admin_registrations (user_id)
+    """)
+    conn.commit()
+
+
+def add_admin_registration(user_id: int, target_role: str, fio: str) -> int:
+    """Добавляет новую заявку на регистрацию."""
+    cursor.execute("""
+        INSERT INTO admin_registrations (user_id, target_role, fio)
+        VALUES (?, ?, ?)
+    """, (user_id, target_role, fio))
+    conn.commit()
+    return cursor.lastrowid
+
+
+def get_user_registrations(user_id: int) -> list[dict]:
+    """Возвращает список заявок пользователя на регистрацию."""
+    cursor.execute("""
+        SELECT id, target_role, fio, status, created_at, 
+               approved_by, approved_at, comment
+        FROM admin_registrations
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+    """, (user_id,))
+    cols = [c[0] for c in cursor.description]
+    return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+
+def update_registration_status(reg_id: int, status: str, approved_by: int = None, comment: str = None) -> None:
+    """Обновляет статус заявки на регистрацию."""
+    cursor.execute("""
+        UPDATE admin_registrations
+        SET status = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, comment = ?
+        WHERE id = ?
+    """, (status, approved_by, comment, reg_id))
+    conn.commit()

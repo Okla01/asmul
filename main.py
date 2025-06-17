@@ -20,14 +20,25 @@ from admins.practice_supervisor.registration.handlers import *
 from admins.admin.handlers import *
 from admins.handlers import *
 
+from admins.registration import setup_admin_registration
+from db.init_db import init_db
+
 
 async def on_startup(bot: Bot) -> None:
     """
-    Вызывается автоматически при старте Dispatcher’а.
+    Вызывается автоматически при старте Dispatcher'а.
     Запускаем планировщик рассылок в отдельной задаче
     **(без await, чтобы не блокировать запуск бота).**
     """
     asyncio.create_task(mailing_scheduler(bot))
+
+
+# Инициализируем базу данных
+init_db()
+
+
+# Регистрация всех роутеров
+setup_admin_registration(dp)
 
 
 dp.startup.register(on_startup)
