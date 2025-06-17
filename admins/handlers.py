@@ -26,7 +26,6 @@ from aiogram.types import FSInputFile
 from admins.filters.allowed_ids import AllowedIDs
 from admins.filters.is_admin import IsAdmin
 from admins.keyboards import (
-    get_admin_panel_kb,
     get_import_files_kb,
     get_practice_supervisor_panel_kb,
     get_superadmin_panel_kb,
@@ -34,6 +33,7 @@ from admins.keyboards import (
     delete_this_msg,
 )
 from admins.states import ImportFSM
+from admins.role_commands import router as role_router
 from config import ROLES, bot, dp, IMPORT_FILES
 from db.database import (
     export_candidates_zip_async,
@@ -66,48 +66,9 @@ def _role_suffix(role_code: str) -> str:
 #                              ОСНОВНОЕ МЕНЮ /admin                           #
 # --------------------------------------------------------------------------- #
 
-
-@dp.message(Command("admin"))
-async def admin_entry(message: types.Message, state: FSMContext) -> None:
-    """
-    Хэндлер для открытия админ-панели в зависимости от роли пользователя.
-    Если роль не админская, выводит сообщение о недоступности команды.
-    """
-    await state.clear()
-
-    user_role = get_user_role(message.from_user.id)
-    
-    if not user_role:
-        await message.answer(
-            "❌ Данная команда недоступна, так как у вас нет роли."
-        )
-        return
-    
-    suffix = _role_suffix(user_role)
-    
-    if suffix == "practice_supervisor":
-        await message.answer(
-            "Панель руководителя практики",
-            reply_markup=get_practice_supervisor_panel_kb()
-        )
-    elif suffix == "admin":
-        await message.answer(
-            "Панель админа",
-            reply_markup=get_admin_panel_kb()
-        )
-    elif suffix == "supervisor":
-        await message.answer(
-            "Панель суперадмина",
-            reply_markup=get_superadmin_panel_kb()
-        )
-    else:
-        await message.answer(
-            f"❌ Данная команда недоступна, так как ваша роль: {user_role}"
-        )
-
+# Удаляем старый хендлер /admin, так как теперь он не нужен
 
 # ---------------------------- ПРОЧИЕ КОЛЛБЭКИ ----------------------------- #
-
 
 @dp.callback_query(F.data == "sa_menu")
 async def sa_menu_h(cb: types.CallbackQuery) -> None:
@@ -115,7 +76,6 @@ async def sa_menu_h(cb: types.CallbackQuery) -> None:
     await cb.message.edit_text(
         "Панель суперадмина", reply_markup=get_superadmin_panel_kb()
     )
-
 
 @dp.message(Command("set_my_role"))
 async def send_role_chooser(msg: types.Message) -> None:
@@ -126,7 +86,6 @@ async def send_role_chooser(msg: types.Message) -> None:
         "Выберите, на какую роль хотите переключиться:"
     )
     await msg.answer(text, reply_markup=_role_kb(role), parse_mode="HTML")
-
 
 @dp.callback_query(F.data.startswith("setrole:"))
 async def change_role(cb: types.CallbackQuery) -> None:
@@ -147,7 +106,6 @@ async def change_role(cb: types.CallbackQuery) -> None:
         parse_mode="HTML",
     )
     await cb.answer("Роль успешно изменена!")
-
 
 # --------------------------------------------------------------------------- #
 #                        ЭКСПОРТ и  ИМПОРТ  Excel-ФАЙЛОВ                      #

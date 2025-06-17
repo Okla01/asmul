@@ -48,8 +48,6 @@ from db.database import (
     update_ps_request_status,
     update_ps_user_id,
 )
-# импортируем «лениво», чтобы не спровоцировать кольцевую зависимость
-from admins.handlers import admin_entry
 
 # --------------------------------------------------------------------------- #
 #                           /admin  ДЛЯ НЕ-РП                                 #
@@ -68,7 +66,7 @@ async def admin_entry_with_ps_registration(message: Message, state: FSMContext) 
 
     role = (get_user_role(message.from_user.id) or "user_unauthorized").lower()
     if role.startswith("admin_practice_supervisor"):
-        return await admin_entry(message, state)
+        return 
 
     await message.answer(
         "Чтобы получить доступ к панели руководителя практики, пожалуйста, "

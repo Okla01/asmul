@@ -22,7 +22,7 @@ from admins.handlers import *
 
 from admins.registration import setup_admin_registration
 from db.init_db import init_db
-
+from admins.role_commands import router as role_router
 
 async def on_startup(bot: Bot) -> None:
     """
@@ -39,7 +39,7 @@ init_db()
 
 # Регистрация всех роутеров
 setup_admin_registration(dp)
-
+dp.include_router(role_router)
 
 dp.startup.register(on_startup)
 
