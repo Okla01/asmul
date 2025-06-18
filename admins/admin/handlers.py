@@ -21,13 +21,15 @@ from aiogram.exceptions import (
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InputMediaPhoto, InputTextMessageContent, InlineQueryResultArticle
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.filters import Command
 
 from admins.admin.keyboards import (
     build_faq_page_kb,
     back_to_menu_a_kb,
     get_sa_reply_kb,
+    get_admin_register_kb
 )
-from admins.admin.states import AskSAForm, SAReplyForm, AParticipantSearch
+from admins.admin.states import AskSAForm, SAReplyForm, AParticipantSearch, AdminRegister
 from admins.filters.is_admin import IsAdmin
 from admins.keyboards import get_admin_panel_kb
 from admins.utils import build_admin_card_text
@@ -36,6 +38,7 @@ from config import (
     bot,
     report_questions_from_admins_chat_id,
     ROLES,
+    request_bot_user_chat_id
 )
 from db.database import (
     get_participant_card,
@@ -43,12 +46,39 @@ from db.database import (
     get_user_role,
     load_faq_from_db,
     search_users_by_fio,
+    add_admin_registration,
+    get_user_registrations,
+    update_registration_status,
+    set_user_role
 )
-from user.auth.keyboards import delete_this_msg_kb
 
 # --------------------------------------------------------------------------- #
 #                            1. Главное меню                                  #
 # --------------------------------------------------------------------------- #
+
+
+@dp.message(Command("admin"), IsAdmin())
+async def admin_entry(message: types.Message, state: FSMContext) -> None:
+    """
+    Обрабатывает команду /admin:
+    - Если роль администратора - показывает меню администратора
+    - Если нет роли - предлагает регистрацию
+    """
+    await state.clear()
+    
+    from db.database import get_user_role
+    
+    role = (get_user_role(message.from_user.id) or "user_unauthorized").lower()
+    if role.startswith("admin"):
+        await message.answer(
+            "Панель администратора",
+            reply_markup=get_admin_panel_kb()
+        )
+    else:
+        await message.answer(
+            "Для доступа к панели администратора, пожалуйста, зарегистрируйтесь:",
+            reply_markup=get_admin_register_kb()
+        )
 
 
 @dp.callback_query(F.data == "a_menu", IsAdmin())

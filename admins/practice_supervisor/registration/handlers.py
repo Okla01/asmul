@@ -50,32 +50,6 @@ from db.database import (
 )
 
 # --------------------------------------------------------------------------- #
-#                           /admin  ДЛЯ НЕ-РП                                 #
-# --------------------------------------------------------------------------- #
-
-
-@dp.message(Command("admin"))
-async def admin_entry_with_ps_registration(message: Message, state: FSMContext) -> None:
-    """
-    Перехватываем /admin: если роль *не* admin_practice_supervisor — предлагаем
-    зарегистрироваться. Иначе передаём управление в общий админ-хэндлер.
-    """
-    await state.clear()
-
-    from db.database import get_user_role  # локальный импорт = избегаем циклов
-
-    role = (get_user_role(message.from_user.id) or "user_unauthorized").lower()
-    if role.startswith("admin_practice_supervisor"):
-        return 
-
-    await message.answer(
-        "Чтобы получить доступ к панели руководителя практики, пожалуйста, "
-        "зарегистрируйтесь:",
-        reply_markup=get_ps_register_kb(),
-    )
-
-
-# --------------------------------------------------------------------------- #
 #                        1.  ЗАПУСК РЕГИСТРАЦИИ                               #
 # --------------------------------------------------------------------------- #
 
