@@ -26,6 +26,6 @@ FSM состояния для регистрации обычного админ
 
 from aiogram.fsm.state import State, StatesGroup
 
-class AdminRegister(StatesGroup):
-    """FSM для регистрации обычного администратора."""
-    WaitingFullName = State()  # Ожидаем ввод ФИО
+class AdminRegistration(StatesGroup):
+    """ FSM для заявки на роль «Обычный админ» """
+    waiting_fio = State()

@@ -84,10 +84,3 @@ def get_sa_reply_kb(admin_id: int) -> InlineKeyboardMarkup:
         .button(text="✉️ Ответить", callback_data=f"sa_reply_{admin_id}")
         .as_markup()
     )
-
-
-def get_admin_register_kb() -> InlineKeyboardMarkup:
-    """Кнопка "Зарегистрироваться" для администратора."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Зарегистрироваться", callback_data="admin_register")
-    return builder.as_markup()

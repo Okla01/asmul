@@ -23,13 +23,14 @@ from aiogram.types import InputMediaPhoto, InputTextMessageContent, InlineQueryR
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import Command
 
+from db.database import add_admin_registration
+
 from admins.admin.keyboards import (
     build_faq_page_kb,
     back_to_menu_a_kb,
     get_sa_reply_kb,
-    get_admin_register_kb
 )
-from admins.admin.states import AskSAForm, SAReplyForm, AParticipantSearch, AdminRegister
+from admins.admin.states import AskSAForm, SAReplyForm, AParticipantSearch, AdminRegistration
 from admins.filters.is_admin import IsAdmin
 from admins.keyboards import get_admin_panel_kb
 from admins.utils import build_admin_card_text
@@ -38,7 +39,8 @@ from config import (
     bot,
     report_questions_from_admins_chat_id,
     ROLES,
-    request_bot_user_chat_id
+    request_bot_user_chat_id,
+    report_questions_from_candidates_chat_id
 )
 from db.database import (
     get_participant_card,
@@ -57,27 +59,39 @@ from db.database import (
 # --------------------------------------------------------------------------- #
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+#  /admin  — точка входа в панель обычного администратора
+# ──────────────────────────────────────────────────────────────────────────────
 @dp.message(Command("admin"), IsAdmin())
 async def admin_entry(message: types.Message, state: FSMContext) -> None:
     """
-    Обрабатывает команду /admin:
-    - Если роль администратора - показывает меню администратора
-    - Если нет роли - предлагает регистрацию
+    Обрабатывает команду /admin.
+
+    • Если у пользователя **ровно** роль «Обычный админ» (`admin_admin`) —
+      открывает панель обычного администратора.
+
+    • Во всех остальных случаях (руководитель практики, суперадмин,
+      либо отсутствие роли) предлагает оформить заявку на получение
+      роли «Обычный админ».
     """
     await state.clear()
-    
+
     from db.database import get_user_role
-    
-    role = (get_user_role(message.from_user.id) or "user_unauthorized").lower()
-    if role.startswith("admin"):
+
+    role: str = (get_user_role(message.from_user.id) or "user_unauthorized").lower()
+
+    # --- доступ в панель только для 'admin_admin' --------------------------------
+    if role == "admin_admin":
         await message.answer(
-            "Панель администратора",
+            "Панель обычного администратора",
             reply_markup=get_admin_panel_kb()
         )
+    # --------------------------------------------------------------------------- #
     else:
+        await state.set_state(AdminRegistration.waiting_fio)
+        await state.update_data(target_role="admin_admin")
         await message.answer(
-            "Для доступа к панели администратора, пожалуйста, зарегистрируйтесь:",
-            reply_markup=get_admin_register_kb()
+            "Для регистрации введите своё ФИО:\n(Фамилия Имя Отчество)"
         )
 
 
@@ -87,6 +101,54 @@ async def back_to_admin_menu(cb: types.CallbackQuery) -> None:
     await cb.message.edit_text("Панель админа", reply_markup=get_admin_panel_kb())
     await cb.answer()
 
+@dp.message(AdminRegistration.waiting_fio)
+async def process_admin_fio(message: types.Message, state: FSMContext) -> None:
+    fio_raw: str = message.text.strip()
+
+    if len(fio_raw.split()) != 3:
+        await message.answer(
+            "Пожалуйста, укажите Фамилию, Имя и Отчество полностью, "
+            "через пробел. Попробуйте ещё раз:"
+        )
+        return
+
+    #  ➜ сохранение в БД / отправка модератору / auto-approve
+    add_admin_registration(
+        user_id=message.from_user.id,
+        target_role="admin_admin",
+        fio=fio_raw
+    )
+
+    # Отправляем уведомление в чат администраторов
+    await message.bot.send_message(
+        report_questions_from_candidates_chat_id,
+        f"Новая заявка на регистрацию администратора\n"
+        f"Пользователь: {message.from_user.mention_markdown()}\n"
+        f"Роль: администратор\n"
+        f"ФИО: {fio_raw}\n"
+        f"\n"
+        f"{message.from_user.url}",
+        reply_markup=types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    types.InlineKeyboardButton(
+                        text="✅ Одобрить",
+                        callback_data=f"approve_admin:{message.from_user.id}:admin_admin"
+                    ),
+                    types.InlineKeyboardButton(
+                        text="❌ Отклонить",
+                        callback_data=f"reject_admin:{message.from_user.id}:admin_admin"
+                    )
+                ]
+            ]
+        )
+    )
+
+    await message.answer(
+        "✅ Ваша заявка на регистрацию отправлена!\n"
+        "Ожидайте решения администраторов."
+    )
+    await state.clear()
 
 # --------------------------------------------------------------------------- #
 #                               2. FAQ                                        #
