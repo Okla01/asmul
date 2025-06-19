@@ -5,7 +5,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 
 from admins.registration.states import AdminRegistration
-from db.database import get_user_registrations, set_user_role, get_user_role
+from db.database import get_user_registrations, set_user_role, get_user_role, update_registration_status
 from config import report_questions_from_candidates_chat_id
 from admins.keyboards import (
     get_practice_supervisor_panel_kb,
@@ -62,7 +62,22 @@ async def approve_admin(callback: CallbackQuery, state: FSMContext):
     _, user_id_str, role = callback.data.split(":", 2)
     user_id = int(user_id_str)
     
+    # Обновляем роль пользователя
     set_user_role(user_id, role)
+    
+    # Обновляем статус заявки в базе данных
+    registrations = get_user_registrations(user_id)
+    if registrations:
+        # Находим последнюю ожидающую заявку для этой роли
+        for reg in registrations:
+            if reg['target_role'] == role and reg['status'] == 'pending':
+                update_registration_status(
+                    reg_id=reg['id'],
+                    status='approved',
+                    approved_by=callback.from_user.id,
+                    comment='Одобрено администратором'
+                )
+                break
     
     await callback.message.edit_text(
         f"Заявка на регистрацию одобрена!\n"
@@ -81,6 +96,20 @@ async def approve_admin(callback: CallbackQuery, state: FSMContext):
 async def reject_admin(callback: CallbackQuery, state: FSMContext):
     _, user_id_str, role = callback.data.split(":", 2)
     user_id = int(user_id_str)
+    
+    # Обновляем статус заявки в базе данных
+    registrations = get_user_registrations(user_id)
+    if registrations:
+        # Находим последнюю ожидающую заявку для этой роли
+        for reg in registrations:
+            if reg['target_role'] == role and reg['status'] == 'pending':
+                update_registration_status(
+                    reg_id=reg['id'],
+                    status='rejected',
+                    approved_by=callback.from_user.id,
+                    comment='Отклонено администратором'
+                )
+                break
     
     await callback.message.edit_text(
         f"Заявка на регистрацию отклонена!\n"
