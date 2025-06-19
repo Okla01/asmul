@@ -13,9 +13,9 @@ router = Router()
 
 # Команды для ролей
 ROLE_COMMANDS = {
-    "super_admin": "admin_supervisor",
+    "supervisor": "admin_supervisor",
     "admin": "admin_admin",
-    "ruk_pract": "admin_practice_supervisor"
+    "practice": "admin_practice_supervisor"
 }
 
 @router.message(Command(commands=list(ROLE_COMMANDS.keys())))
