@@ -1,7 +1,10 @@
 """
-Aiogram-фильтр: проверяет,
-  – есть ли у пользователя роль, начинающаяся с «admin», **или**
-  – пришёл ли апдейт из служебного чата заявок на регистрацию.
+Фильтр «IsAdmin».
+
+Срабатывает, если:
+  • у пользователя есть роль, начинающаяся с «admin», ИЛИ
+  • апдейт пришёл из служебного чата заявок на регистрацию
+    (кнопки «Одобрить / Отклонить»).
 """
 
 from __future__ import annotations
@@ -12,24 +15,18 @@ from aiogram import types
 from aiogram.filters import BaseFilter
 
 from db.database import get_user_role
-from config import request_bot_user_chat_id       # ⬅ добавили
+from config import request_bot_user_chat_id    # id чата рассмотрения заявок
 
-_ADMIN_PREFIX: Final = "admin"    # admin, admin_readonly, admin_test и т. п.
+_ADMIN_PREFIX: Final = "admin"    # admin*, admin_readonly, admin_practice_supervisor ...
 
 
 class IsAdmin(BaseFilter):
-    """
-    Срабатывает для Message- и CallbackQuery-хэндлеров, если выполнено
-    одно из условий:
-      • у пользователя есть роль, начинающаяся с «admin»;
-      • апдейт пришёл из чата `request_bot_user_chat_id`
-        (кнопки в чате рассмотрения заявок).
-    """
+    """Фильтр для Message и CallbackQuery."""
 
     __slots__ = ()
 
     async def __call__(self, event: types.Message | types.CallbackQuery) -> bool:  # type: ignore[override]
-        # 👉 1. Разрешаем всё, что приходит из чата рассмотрения заявок
+        # 1. Разрешаем всё, что приходит из чата рассмотрения заявок
         chat_id: int | None = None
         if isinstance(event, types.Message):
             chat_id = event.chat.id
@@ -39,6 +36,6 @@ class IsAdmin(BaseFilter):
         if chat_id == request_bot_user_chat_id:
             return True
 
-        # 👉 2. Иначе проверяем роль пользователя
+        # 2. Проверяем роль пользователя
         role: str | None = get_user_role(event.from_user.id)
         return (role or "").startswith(_ADMIN_PREFIX)

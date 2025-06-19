@@ -882,10 +882,39 @@ def get_tabel_number_by_user_id(user_id: int) -> str:
     row = cursor.fetchone()[0]
     return row if row else None
 
+# ─────────────────  set_user_role (ПОЛНОСТЬЮ ОБНОВЛЁН)  ─────────────────
+def set_user_role(user_id: int, role: str | None) -> None:
+    """
+    Записать новую роль пользователю (таблица users).
 
-def set_user_role(user_id: int, role: str) -> None:
-    cursor.execute("UPDATE users SET role = ? WHERE user_id = ?", (role, user_id))
+    Если старая роль была «admin_practice_supervisor», а новая любая
+    другая (или None), автоматически удаляем строку из practice_supervisors.
+    """
+    # 1) читаем старую роль (может отсутствовать)
+    row = cursor.execute(
+        "SELECT role FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    old_role = row["role"] if row else None
+
+    # 2) обновляем или вставляем запись о пользователе
+    if row:
+        cursor.execute(
+            "UPDATE users SET role = ? WHERE user_id = ?",
+            (role, user_id),
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO users (user_id, role) VALUES (?, ?)",
+            (user_id, role),
+        )
     conn.commit()
+
+    # 3) если пользователь перестал быть РП – чистим practice_supervisors
+    if (
+        old_role == "admin_practice_supervisor"
+        and role != "admin_practice_supervisor"
+    ):
+        remove_practice_supervisor_by_user_id(user_id)
 
 
 def get_employee_by_tabel_number(tabel: str):
@@ -1151,7 +1180,6 @@ def insert_practice_supervisor(full_name: str, department: str, module: str, use
     conn.commit()
     return cursor.lastrowid
 
-
 def create_ps_request(
         user_id: int,
         full_name: str,
@@ -1280,3 +1308,24 @@ def update_registration_status(reg_id: int, status: str, approved_by: int = None
         WHERE id = ?
     """, (status, approved_by, comment, reg_id))
     conn.commit()
+
+# ─────────────────────  helper (НОВЫЙ)  ─────────────────────
+def remove_practice_supervisor_by_user_id(user_id: int) -> None:
+    """
+    Удаляет запись из practice_supervisors по user_id, если запись есть.
+    Вызывается, когда пользователь теряет роль admin_practice_supervisor.
+    """
+    cursor.execute(
+        "DELETE FROM practice_supervisors WHERE user_id = ?",
+        (user_id,),
+    )
+    conn.commit()
+    
+    # ───────────────────── helper (НОВЫЙ) ─────────────────────
+def practice_supervisor_exists(user_id: int) -> bool:
+    """True, если у пользователя уже есть запись в practice_supervisors."""
+    row = cursor.execute(
+        "SELECT 1 FROM practice_supervisors WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    return row is not None
