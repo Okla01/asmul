@@ -1,17 +1,5 @@
 """
 Registration flow for “Practice Supervisor” (РП).
-
-Сценарий
---------
-1. Пользователь без роли открывает /admin → получает кнопку «Зарегистрироваться».
-2. Ввод ФИО:
-   • если найден точный матч в `practice_supervisors` ― создаём запрос *существующий*;
-   • иначе спрашиваем подразделение и создаём запрос *новый*.
-3. Админ в сервис-чате одобряет / отклоняет.
-4. После одобрения нового РП бот просит выбрать модуль; при выборе — вносит
-   запись в БД и даёт пользователю роль `admin_practice_supervisor`.
-
-FSM-состояния см. в `states.py`.
 """
 
 from __future__ import annotations
@@ -29,8 +17,9 @@ from admins.practice_supervisor.registration.keyboards import (
     get_departments_kb,
     get_modules_kb_for_rp,
     get_ps_register_kb,
-    get_ps_request_approval_kb,
+    get_ps_request_approval_kb,  # клавиатура с «Одобрить» / «Отклонить»
 )
+
 from admins.practice_supervisor.registration.states import (
     PSModuleAfterApprove,
     PSRegister,
@@ -139,18 +128,40 @@ async def ps_register_department(cb: CallbackQuery, state: FSMContext) -> None:
     """После выбора отдела создаём pending-запрос (модуль узнаем позднее)."""
     await cb.answer()
 
+    # департамент, выбранный пользователем
     _, encoded = cb.data.split(":", maxsplit=1)
     department = encoded.replace("_", ":")
 
+    # сохраняем департамент и переходим к модулю
+    await state.update_data(department=department)
+    await state.set_state(PSRegister.WaitingModule)
+    await cb.message.edit_text(
+        "✍️ Пожалуйста, укажите <b>модуль</b> текстом:",
+        parse_mode="HTML"
+    )
+
+@dp.message(PSRegister.WaitingModule)
+async def ps_register_module(msg: Message, state: FSMContext) -> None:
+    """Получаем модуль, создаём pending-заявку, шлём её в админ-чат."""
+    module = msg.text.strip()
+    uid = msg.from_user.id
+
+    if has_pending_ps_request(uid):
+        await msg.answer(
+            "❗ У вас уже есть незавершённая заявка на регистрацию руководителя "
+            "практики. Ожидайте решения администраторов."
+        )
+        return
+
     data = await state.get_data()
     full_name: str = data["fio"]
-    uid = cb.from_user.id
+    department: str = data["department"]
 
     req_id = create_ps_request(
         user_id=uid,
         full_name=full_name,
         department=department,
-        module=None,
+        module=module,
         is_existing=False,
         ps_id=None,
     )
@@ -158,14 +169,14 @@ async def ps_register_department(cb: CallbackQuery, state: FSMContext) -> None:
     await _notify_admins_about_request(
         full_name,
         department,
-        None,
+        module,
         req_id,
         uid,
-        cb.from_user.username,
+        msg.from_user.username,
         is_existing=False,
     )
 
-    await cb.message.edit_text("✅ Запрос отправлен администраторам.")
+    await msg.answer("✅ Заявка на регистрацию отправлена администраторам.")
     await state.clear()
 
 
@@ -248,17 +259,24 @@ async def _notify_admins_about_request(
     username: Optional[str],
     is_existing: bool,
 ) -> None:
-    """Отправляем заявку в сервис-чат админов."""
-    label = "существующий" if is_existing else "новый"
+    """
+    Отправляет карточку заявки в сервис-чат администраторов.
+
+    • «существующий» — запись уже есть в БД, только привязываем user_id;  
+    • «новый» — полностью новая регистрация РП.
+    """
+    status = "существующий" if is_existing else "новый"
+
     text = (
-        f"📩 <b>Новый запрос на регистрацию РП ({label})</b>\n\n"
-        f"ФИО: <i>{full_name}</i>\n"
-        f"Подразделение: <i>{department}</i>\n"
-        f"Модуль: <i>{module or '—'}</i>\n"
-        f"UserID: <code>{uid}</code>\n"
-        f"Username: @{username or '—'}\n\n"
-        "Нажмите «Разрешить доступ» или «Отклонить»"
+        f"📩 <b>Новый запрос на регистрацию РП ({status})</b>\n\n"
+        f"<b>ФИО:</b> {full_name}\n"
+        f"<b>Подразделение:</b> {department}\n"
+        f"<b>Модуль:</b> {module or '—'}\n"
+        f"<b>UserID:</b> <code>{uid}</code>\n"
+        f"<b>Username:</b> @{username or '—'}\n\n"
+        "Нажмите «<b>Одобрить</b>» или «<b>Отклонить</b>»"
     )
+
     await bot.send_message(
         request_bot_user_chat_id,
         text,
@@ -267,18 +285,29 @@ async def _notify_admins_about_request(
     )
 
 
+
 async def _process_admin_decision(
     cb: CallbackQuery, *, approved: bool, state: Optional[FSMContext]
 ) -> None:
-    """Общая логика для approve / reject."""
+    """
+    Общая логика для «Одобрить» и «Отклонить».
+
+    • Берём id заявки из callback-data.  
+    • Получаем строку заявки через get_ps_request_by_id.  
+    • Превращаем sqlite3.Row → dict, чтобы downstream-функции могли
+      использовать .get().  
+    • Делегируем в _handle_approval / _handle_reject.
+    """
     try:
         req_id = int(cb.data.split(":", maxsplit=1)[1])
     except ValueError:
         return await cb.answer("Некорректный ID.", show_alert=True)
 
-    req = get_ps_request_by_id(req_id)
-    if not req or req["status"] != "pending":
+    req_row = get_ps_request_by_id(req_id)
+    if not req_row or req_row["status"] != "pending":
         return await cb.answer("Запрос не найден или уже обработан.", show_alert=True)
+
+    req: dict = dict(req_row)  # sqlite3.Row → dict ✅
 
     if approved:
         await _handle_approval(cb, req, state)
@@ -286,13 +315,24 @@ async def _process_admin_decision(
         await _handle_reject(cb, req)
 
 
+# ─────────────────────────  ОДОБРЕНИЕ  ─────────────────────────
 async def _handle_approval(
     cb: CallbackQuery, req: dict, state: Optional[FSMContext]
 ) -> None:
-    """Approve branch."""
+    """
+    Одобрение заявки руководителя практики.
+
+    1️⃣ Существующий РП – привязываем user_id к записи и выдаём роль.  
+    2️⃣ Новый РП:
+        • если модуль УЖЕ указан (новая форма регистрации) – сразу заводим
+          запись и выдаём роль;  
+        • если модуля нет (старые заявки) – запрашиваем модуль через
+          клавиатуру и переводим РП в FSM-ожидание.
+    """
     uid = req["user_id"]
     username = get_username(uid)
 
+    # -------- 1. Уже существующий РП --------
     if req["is_existing"]:
         update_ps_user_id(req["ps_id"], uid)
         set_user_role(uid, "admin_practice_supervisor")
@@ -303,20 +343,51 @@ async def _handle_approval(
             uid,
             "🎉 Заявка одобрена! Ваш модуль уже зафиксирован.\nВведите /admin.",
         )
-        await _edit_admin_msg(cb, "✅ <b>Заявка одобрена</b> (существующий РП)", req, username)
+        await _edit_admin_msg(
+            cb,
+            "✅ <b>Заявка одобрена</b> (существующий РП)",
+            req,
+            username,
+        )
         return await cb.answer("Доступ предоставлен.")
 
-    # новый РП — ждём выбор модуля
+    # -------- 2. Новый РП, модуль уже есть --------
+    if req.get("module"):
+        insert_practice_supervisor(
+            full_name=req["full_name"],
+            department=req["department"],
+            module=req["module"],
+            user_id=uid,
+        )
+        set_user_role(uid, "admin_practice_supervisor")
+        update_ps_request_status(req["id"], "approved")
+        delete_ps_request(req["id"])
+
+        await bot.send_message(
+            uid,
+            "🎉 Ваша заявка одобрена!\nВведите /practice для доступа к панели.",
+        )
+        await _edit_admin_msg(cb, "✅ <b>Заявка одобрена</b>", req, username)
+        await cb.answer("Запрос одобрен.")
+        return
+
+    # -------- 3. Новый РП, модуль ещё не выбран (fallback) --------
     update_ps_request_status(req["id"], "approved")
+
     kb = get_modules_kb_for_rp(department=req["department"], req_id=req["id"])
     await bot.send_message(
         uid,
         "🎉 Заявка одобрена!\n✍️ Выберите модуль:",
         reply_markup=kb,
     )
-    await _edit_admin_msg(cb, "✅ <b>Заявка одобрена</b> (ожидание модуля)", req, username)
+    await _edit_admin_msg(
+        cb,
+        "✅ <b>Заявка одобрена</b> (ожидание модуля)",
+        req,
+        username,
+    )
 
-    # переводим РП в FSM-ожидание модуля
+    # переводим пользователя в FSM-ожидание модуля
     rp_state = FSMContext(
         storage=dp.storage,
         key=StorageKey(chat_id=uid, user_id=uid, bot_id=bot.id),
@@ -327,8 +398,9 @@ async def _handle_approval(
     await cb.answer("Запрос одобрен. Ожидаем модуль от РП.")
 
 
+# ─────────────────────────  ОТКЛОНЕНИЕ  ─────────────────────────
 async def _handle_reject(cb: CallbackQuery, req: dict) -> None:
-    """Reject branch."""
+    """Отклонение заявки руководителя практики."""
     uid = req["user_id"]
     update_ps_request_status(req["id"], "rejected")
     delete_ps_request(req["id"])
@@ -336,6 +408,7 @@ async def _handle_reject(cb: CallbackQuery, req: dict) -> None:
     await bot.send_message(uid, "🚫 Ваша заявка отклонена.")
     await _edit_admin_msg(cb, "❗ <b>Заявка отклонена</b>", req, get_username(uid))
     await cb.answer("Заявка отклонена.")
+
 
 
 async def _edit_admin_msg(

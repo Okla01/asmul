@@ -9,7 +9,7 @@ class PSRegister(StatesGroup):
     """Первичная форма регистрации РП."""
     WaitingFullName = State()
     WaitingDepartment = State()
-
+    WaitingModule = State()
 
 class PSModuleAfterApprove(StatesGroup):
     """Выбор модуля после одобрения заявки."""

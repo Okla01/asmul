@@ -24,15 +24,32 @@ def get_ps_register_kb() -> InlineKeyboardMarkup:
     )
 
 
+# def get_ps_request_approval_kb(request_id: int) -> InlineKeyboardMarkup:
+#     """Кнопки для админов: «Разрешить» / «Отклонить»."""
+#     return (
+#         InlineKeyboardBuilder()
+#         .button(text="✅ Разрешить доступ", callback_data=f"ps_approve:{request_id}")
+#         .button(text="🚫 Отклонить", callback_data=f"ps_reject:{request_id}")
+#         .adjust(2)
+#         .as_markup()
+#     )
+    
 def get_ps_request_approval_kb(request_id: int) -> InlineKeyboardMarkup:
-    """Кнопки для админов: «Разрешить» / «Отклонить»."""
+    """
+    Кнопки под заявкой РП в админ-чате: «Одобрить» / «Отклонить».
+
+    callback_data:
+        • ps_approve:{request_id}
+        • ps_reject:{request_id}
+    """
     return (
         InlineKeyboardBuilder()
-        .button(text="✅ Разрешить доступ", callback_data=f"ps_approve:{request_id}")
+        .button(text="✅ Одобрить",  callback_data=f"ps_approve:{request_id}")
         .button(text="🚫 Отклонить", callback_data=f"ps_reject:{request_id}")
         .adjust(2)
         .as_markup()
     )
+
 
 
 def get_departments_kb(
