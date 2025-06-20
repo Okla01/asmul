@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from aiogram.exceptions import TelegramBadRequest
 
 from admins.filters.allowed_ids import AllowedIDs
 from config import dp, bot, report_questions_from_candidates_chat_id, new_cand_request_chat_id, SIM_NAMES
@@ -878,39 +879,106 @@ async def sim_vs_h(callback_query: CallbackQuery, state: FSMContext):
 
 @dp.message(RegistrationForm.WaitForVSMIR, F.photo | (F.document & F.document.mime_type.in_(ALLOWED_MIME)))
 async def sim_vs_h_photo(message: Message, state: FSMContext):
-    lang = get_user_lang(message.from_user.id)
-    file_id = None
+    user_id = message.from_user.id
+    lang = get_user_lang(user_id)
+    state_data = await state.get_data()
+    general_msg_id = state_data.get('general_msg_id')
+    
+    # Удаляем сообщение с фото
+    try:
+        await message.delete()
+    except:
+        pass
+    
     if message.photo:
         file_id = message.photo[-1].file_id
-    elif message.document:
+    else:
         file_id = message.document.file_id
-
-    if not file_id:
-        await message.reply(tr(lang, "attach_file_prompt"))
-        return
-
+    
+    # Сохраняем информацию о файле в базу
     add_simulation_result(
-        user_id=message.from_user.id, simulation_type="VS_MIR", screenshot_path=file_id
+        user_id=user_id, 
+        simulation_type="VS_MIR", 
+        screenshot_path=file_id
     )
-
-    await state.update_data(vs_mir_file_id=file_id)
-    await message.delete()
-    await state.set_state()
-
-    data = await state.get_data()
-    gen_id = data["general_msg_id"]
-
+    
+    # Формируем сообщение с благодарностью
+    text = "Спасибо! Ваши данные сохранены. ✅"
+    kb = InlineKeyboardBuilder()
+    kb.button(text=tr(lang, "btn_continue"), callback_data="continue_registration")
+    kb = kb.adjust(1).as_markup()
+    
     try:
-        await bot.edit_message_text(
-            chat_id=message.chat.id,
-            message_id=gen_id,
-            text=tr(lang, "sim_thanks"),
-            reply_markup=build_stage2_1_continue_kb(lang),
-        )
+        # Пытаемся отредактировать существующее сообщение
+        if general_msg_id:
+            await bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=general_msg_id,
+                text=text,
+                reply_markup=kb
+            )
+            return
     except:
-        msg = await message.answer(text=tr(lang, "sim_thanks"),
-                                   reply_markup=build_stage2_1_continue_kb(lang))
-        await state.update_data(general_msg_id=msg.message_id)
+        pass
+    
+    # Если не удалось отредактировать, отправляем новое сообщение
+    sent_message = await message.answer(text, reply_markup=kb)
+    await state.update_data(general_msg_id=sent_message.message_id)
+
+@dp.callback_query(lambda c: c.data == "continue_registration")
+async def continue_registration(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    lang = get_user_lang(user_id)
+    
+    # Проверяем, все ли документы загружены
+    if has_photo(user_id) and has_passport(user_id) and has_both_sims(user_id):
+        # Все документы загружены, завершаем регистрацию
+        await state.clear()
+        
+        # Импортируем здесь, чтобы избежать циклического импорта
+        from user.auth.handlers import user_main_menu_kb
+        
+        # Отправляем сообщение с главным меню
+        await callback.message.answer(
+            "Добро пожаловать в чат-бот Алабуга Старт! 🎉",
+            parse_mode="HTML",
+            reply_markup=user_main_menu_kb
+        )
+        
+        # Удаляем предыдущее сообщение с кнопкой "Продолжить"
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        
+    else:
+        # Показываем меню загрузки с обновленными статусами
+        text = stage2_intro_text(lang, user_id)
+        kb = build_stage2_kb(lang)
+        
+        try:
+            # Пытаемся отредактировать существующее сообщение
+            state_data = await state.get_data()
+            general_msg_id = state_data.get('general_msg_id')
+            
+            if general_msg_id:
+                await callback.bot.edit_message_text(
+                    chat_id=callback.message.chat.id,
+                    message_id=general_msg_id,
+                    text=text,
+                    reply_markup=kb
+                )
+                await callback.answer()
+                return
+        except:
+            # В случае ошибки продолжаем выполнение
+            pass
+        
+        # Если не удалось отредактировать, отправляем новое сообщение
+        sent_message = await callback.message.answer(text, reply_markup=kb)
+        await state.update_data(general_msg_id=sent_message.message_id)
+    
+    await callback.answer()
 
 
 # ------------------------------------------------------------------
