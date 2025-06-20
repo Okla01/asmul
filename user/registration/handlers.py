@@ -903,7 +903,7 @@ async def sim_vs_h_photo(message: Message, state: FSMContext):
     )
     
     # Формируем сообщение с благодарностью
-    text = "Спасибо! Ваши данные сохранены. ✅"
+    text = tr(lang, "sim_thanks")
     kb = InlineKeyboardBuilder()
     kb.button(text=tr(lang, "btn_continue"), callback_data="continue_registration")
     kb = kb.adjust(1).as_markup()
