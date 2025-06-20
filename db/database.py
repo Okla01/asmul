@@ -1329,3 +1329,20 @@ def practice_supervisor_exists(user_id: int) -> bool:
         (user_id,),
     ).fetchone()
     return row is not None
+
+def is_stage1_complete(user_id: int) -> bool:
+    """Проверяет, заполнены ли все обязательные поля первого этапа регистрации."""
+    cursor.execute(
+        """
+        SELECT full_name, gender, country, phone_number, email, age 
+        FROM users 
+        WHERE user_id=?
+        """,
+        (user_id,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        return False
+    
+    # Проверяем, что все обязательные поля заполнены
+    return all(row) and row['age'] is not None

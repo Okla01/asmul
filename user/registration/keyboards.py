@@ -69,8 +69,7 @@ def _kb_single(text: str, cb: str):
 def build_participant_kb(lang: str):
     kb = InlineKeyboardBuilder()
     kb.button(text=tr(lang, "btn_become_participant"), callback_data="become_participant")
-    kb.button(text=tr(lang, "btn_already_participant"), callback_data="already_participant")
-    return kb.adjust(1, 1).as_markup()
+    return kb.as_markup()
 
 
 # ---------- выбор пола --------------------------------------------

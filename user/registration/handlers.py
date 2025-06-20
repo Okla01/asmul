@@ -66,7 +66,6 @@ async def start_message(message: types.Message, state: FSMContext):
     if str(message.chat.id).startswith("-"):
         return  # игнорируем группы
 
-    await state.set_state()
     user_id = message.from_user.id
     username = message.from_user.username
     tg_full_name = message.from_user.full_name
@@ -74,9 +73,33 @@ async def start_message(message: types.Message, state: FSMContext):
     # обновляем / создаём запись пользователя
     if user_exists(user_id):
         db_user_update(user_id, username, tg_full_name)
+        from db.database import is_stage1_complete, is_stage2_complete
+        
+        if is_stage2_complete(user_id):
+            # Пользователь полностью зарегистрирован - переходим в главное меню
+            from user.auth.handlers import user_main_menu_kb
+            await bot.send_message(
+                message.chat.id,
+                tr("ru", "welcome_back"),
+                reply_markup=user_main_menu_kb
+            )
+            return
+        elif is_stage1_complete(user_id):
+            # Пользователь прошел только первый этап - показываем меню stage2 с текущими статусами
+            lang = get_user_lang(user_id)
+            completed = is_stage2_complete(user_id)
+            await bot.send_message(
+                message.chat.id,
+                tr(lang, "continue_registration_stage2") + "\n\n" + stage2_intro_text(lang, user_id),
+                parse_mode="HTML",
+                reply_markup=build_stage2_kb(lang, completed)
+            )
+            return
     else:
         db_user_insert(id=user_id, username=username, tg_full_name=tg_full_name)
 
+    # Если пользователь не начал регистрацию, показываем выбор языка
+    await state.set_state()
     await bot.send_message(
         message.chat.id,
         tr("ru", "choose_language_prompt"),
@@ -91,14 +114,30 @@ async def start_message(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data.startswith("lang_"))
 async def callback_query_choose_language(callback_query: CallbackQuery, state: FSMContext):
     lang = callback_query.data.split("_", 1)[1]
+    user_id = callback_query.from_user.id
+    
+    # Обновляем язык пользователя
+    set_user_lang(user_id, lang)
+    
+    # Проверяем, завершил ли пользователь регистрацию
+    if is_stage2_complete(user_id):
+        # Пользователь уже зарегистрирован - переходим в главное меню
+        from user.auth.handlers import user_main_menu_kb
+        await callback_query.message.edit_text(
+            tr(lang, "welcome_back"),
+            parse_mode="HTML",
+            reply_markup=user_main_menu_kb
+        )
+        await state.clear()
+        return
+        
+    # Если регистрация не завершена, продолжаем процесс
     await state.update_data(lang=lang)
-    set_user_lang(callback_query.from_user.id, lang)
     await callback_query.message.edit_text(
         tr(lang, "welcome_message"),
         parse_mode="HTML",
         reply_markup=build_participant_kb(lang),
     )
-    await callback_query.answer()
 
 
 @dp.callback_query(F.data == "back_1_1")
@@ -328,16 +367,16 @@ async def phone_saved(msg: Message, state: FSMContext):
     mask_len = st.get("phone_mask", "__________").count("_")
     err_cnt = st.get("phone_error_count", 0)
     old_err_id = st.get("phone_error_msg_id")
-    old_user_msg_id = st.get("phone_error_user_id")  # 🔄
+    old_user_msg_id = st.get("phone_error_user_id")  # 
 
     # ─── удаляем прошлые сообщения (ошибка + невалидный ввод) ───
-    for mid in (old_err_id, old_user_msg_id):  # 🔄
+    for mid in (old_err_id, old_user_msg_id):  # 
         if mid:
             try:
                 await bot.delete_message(msg.chat.id, mid)
             except Exception:
                 pass
-    if old_err_id or old_user_msg_id:  # 🔄
+    if old_err_id or old_user_msg_id:  # 
         await state.update_data(phone_error_msg_id=None,
                                 phone_error_user_id=None)
 
@@ -351,7 +390,7 @@ async def phone_saved(msg: Message, state: FSMContext):
         # сохраняем id текущих «ошибочных» сообщений
         await state.update_data(
             phone_error_msg_id=err.message_id,
-            phone_error_user_id=msg.message_id  # 🔄
+            phone_error_user_id=msg.message_id  # 
         )
         return
 
@@ -360,7 +399,7 @@ async def phone_saved(msg: Message, state: FSMContext):
         phone=phone,
         phone_error_count=0,
         phone_error_msg_id=None,
-        phone_error_user_id=None  # 🔄
+        phone_error_user_id=None  # 
     )
 
     if (pid := st.get("phone_msg_id")):
@@ -381,7 +420,7 @@ async def phone_saved(msg: Message, state: FSMContext):
 # ---------- email --------------------------------------------------
 @dp.message(RegistrationForm.WaitForEmail, F.text)
 async def process_email(message: Message, state: FSMContext):
-    import html as std_html  # ⬅️ понадобится для экранирования
+    import html as std_html  # 
     lang = get_user_lang(message.from_user.id)
     email = message.text.strip()
     email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
@@ -390,7 +429,7 @@ async def process_email(message: Message, state: FSMContext):
     err_cnt = data.get("email_error_count", 0)
     old_err_id = data.get("email_error_msg_id")
     old_user_msg_id = data.get("email_error_user_id")
-    email_msg_id = data.get("email_msg_id")  # ⬅️ новый id
+    email_msg_id = data.get("email_msg_id")  # 
 
     # ─── удаляем прошлые ошибки и невалидный ввод ───
     for mid in (old_err_id, old_user_msg_id):
@@ -425,7 +464,7 @@ async def process_email(message: Message, state: FSMContext):
         email_error_user_id=None
     )
 
-    # ⬇️ редактируем приглашение на ввод e-mail
+    # 
     if email_msg_id:
         try:
             await bot.edit_message_text(
@@ -528,7 +567,7 @@ async def confirm_data(callback_query: CallbackQuery, state: FSMContext):
     await callback_query.message.answer(
         tr(lang, "data_saved") + "\n\n" + stage2_intro_text(lang, callback_query.from_user.id),
         parse_mode="HTML",
-        reply_markup=build_stage2_kb(lang, completed),  # ←
+        reply_markup=build_stage2_kb(lang, completed),  # 
     )
     await state.set_state()
     await callback_query.answer()
@@ -557,15 +596,15 @@ async def go_stage_2(callback_query: CallbackQuery, state: FSMContext):
     await state.set_data({})
     lang = get_user_lang(callback_query.from_user.id)
     await state.set_state()
-    completed = is_stage2_complete(callback_query.from_user.id)  # ← добавили
+    completed = is_stage2_complete(callback_query.from_user.id)  # 
     notified = is_notifed(callback_query.from_user.id)
     if completed and not notified:
         full_name, username = _get_basic_user(callback_query.from_user.id)
         text = (
-            f"🆕 Новая заявка от участницы\n"
-            f"👤 {full_name}\n"
-            f"🔗 @{username}\n"
-            f"🆔 {callback_query.from_user.id}"
+            f" Новая заявка от участницы\n"
+            f" {full_name}\n"
+            f" @{username}\n"
+            f" {callback_query.from_user.id}"
         )
         await bot.send_message(
             chat_id=new_cand_request_chat_id,
@@ -578,7 +617,7 @@ async def go_stage_2(callback_query: CallbackQuery, state: FSMContext):
         await callback_query.message.edit_text(
             stage2_intro_text(lang, callback_query.from_user.id),
             parse_mode="HTML",
-            reply_markup=build_stage2_kb(lang, completed),  # ← передаём флаг
+            reply_markup=build_stage2_kb(lang, completed),  # 
         )
     except Exception:
         await callback_query.message.delete()
@@ -897,7 +936,7 @@ async def ask_question_cancel(callback_query: CallbackQuery, state: FSMContext):
     lang = get_user_lang(callback_query.from_user.id)
     await callback_query.message.edit_text(
         tr(lang, "ask_cancelled"),
-        reply_markup=build_stage2_kb(lang, is_stage2_complete(callback_query.from_user.id)),  # ←
+        reply_markup=build_stage2_kb(lang, is_stage2_complete(callback_query.from_user.id)),  # 
     )
     await state.clear()
     await callback_query.answer()
@@ -929,7 +968,7 @@ async def admin_reply_cand_start(callback_query: CallbackQuery, state: FSMContex
     # Обновляем сообщение в группе
     new_text = (
         f"{callback_query.message.text}\n\n"
-        f"⏳ <b>{escape(admin.full_name)}</b> пишет ответ..."
+        f" ⏳ <b>{escape(admin.full_name)}</b> пишет ответ..."
     )
     await bot.edit_message_text(
         chat_id=report_questions_from_candidates_chat_id,
@@ -1088,11 +1127,11 @@ async def admin_claim(callback_query: CallbackQuery):
         "age"] or "-"
 
     profile_text = (
-        "<b>📋 Данные кандидата:</b>\n"
-        f"👤 {std_html.escape(full_name)}\n"
-        f"🔗 @{username}\n"
-        f"📞 {phone}\n"
-        f"✉️ {email}\n"
+        "<b> 📋 Данные кандидата:</b>\n"
+        f" 👤 {std_html.escape(full_name)}\n"
+        f" 🔗 @{username}\n"
+        f" 📞 {phone}\n"
+        f" ✉️ {email}\n"
         f"{country}\n"
         f"{age}\n"
     )
